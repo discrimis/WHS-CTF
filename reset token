@@ -1,0 +1,205 @@
+/* 가장 기초적인 코드는 짜봤고, 실제로 넣어봤더니 기능하는것을 확인
+   forget에 hint를 띄어놨지만 계속 해나가면서 hint를 코드내부로 숨길예정
+   디자인은 로직 전부 해결한다음 건들예정
+*/
+
+const express = require("express");
+const session = require("express-session");
+
+const app = express();
+
+app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  session({
+    secret: "ctf-session-secret",
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+
+
+const users = {
+  admin: {
+    username: "admin",
+    email: "ctfproblem@ctf.local",
+    password: "unknown_password",
+    role: "admin",
+  },
+};
+
+// 현재 시간(분) 기준 토큰 생성
+function generateResetToken(user, minuteOffset = 0) {
+  const emailPrefix = user.email.split("@")[0];
+  const currentMinute = Math.floor(Date.now() / 60000) + minuteOffset;
+
+  return user.username + emailPrefix + currentMinute;
+}
+
+function isValidResetToken(user, token) {
+  const candidates = [
+    generateResetToken(user, -1),
+    generateResetToken(user, 0),
+    generateResetToken(user, 1),
+  ];
+
+  return candidates.includes(token);
+}
+
+app.get("/", (req, res) => {
+  res.send(`
+    <h1>Reset Token CTF</h1>
+    <ul>
+      <li><a href="/register">Register</a></li>
+      <li><a href="/login">Login</a></li>
+      <li><a href="/forgot">Forgot Password</a></li>
+    </ul>
+
+    <!-- hint: admin username is admin -->
+    <!-- hint: admin email prefix is ctfproblem -->
+  `);
+});
+
+app.get("/register", (req, res) => {
+  res.send(`
+    <h1>Register</h1>
+    <form method="POST" action="/register">
+      <input name="username" placeholder="username" required>
+      <input name="email" placeholder="email" required>
+      <input name="password" placeholder="password" required>
+      <button>Register</button>
+    </form>
+  `);
+});
+
+app.post("/register", (req, res) => {
+  const { username, email, password } = req.body;
+
+  if (users[username]) {
+    return res.send("User already exists.");
+  }
+
+  users[username] = {
+    username,
+    email,
+    password,
+    role: "user",
+  };
+
+  res.send(`
+    <p>Register success.</p>
+    <a href="/login">Go to login</a>
+  `);
+});
+
+app.get("/login", (req, res) => {
+  res.send(`
+    <h1>Login</h1>
+    <form method="POST" action="/login">
+      <input name="username" placeholder="username" required>
+      <input name="password" placeholder="password" required>
+      <button>Login</button>
+    </form>
+  `);
+});
+
+app.post("/login", (req, res) => {
+  const { username, password } = req.body;
+  const user = users[username];
+
+  if (!user || user.password !== password) {
+    return res.status(401).send("Login failed.");
+  }
+
+  req.session.username = username;
+
+  if (user.role === "admin") {
+    return res.send(`
+      <h1>Admin Page</h1>
+      <p>FLAG{predictable_reset_token_ctf}</p>
+    `);
+  }
+
+  res.send(`
+    <h1>Hello, ${user.username}</h1>
+    <p>You are normal user.</p>
+  `);
+});
+
+app.get("/forgot", (req, res) => {
+  res.send(`
+    <h1>Forgot Password</h1>
+    <form method="POST" action="/forgot">
+      <input name="username" placeholder="username" required>
+      <input name="email" placeholder="email" required>
+      <button>Request Reset</button>
+    </form>
+
+    <!-- developer note: reset token uses username + email prefix + current minute -->
+  `);
+});
+
+app.post("/forgot", (req, res) => {
+  const { username, email } = req.body;
+  const user = users[username];
+
+  if (!user || user.email !== email) {
+    return res.send("If the account exists, reset link has been sent.");
+  }
+
+  // CTF 운영자 확인용 로그
+  const token = generateResetToken(user);
+  console.log(`[DEBUG] ${username}'s reset token: ${token}`);
+
+  res.send(`
+    <p>If the account exists, reset link has been sent.</p>
+    <p>Reset page: /reset?username=${encodeURIComponent(username)}&token=YOUR_TOKEN</p>
+  `);
+});
+
+app.get("/reset", (req, res) => {
+  const { username, token } = req.query;
+  const user = users[username];
+
+  if (!user) {
+    return res.status(400).send("Invalid user.");
+  }
+
+  if (!isValidResetToken(user, token)) {
+    return res.status(403).send("Invalid reset token.");
+  }
+
+  res.send(`
+    <h1>Reset Password</h1>
+    <form method="POST" action="/reset">
+      <input type="hidden" name="username" value="${username}">
+      <input type="hidden" name="token" value="${token}">
+      <input name="newPassword" placeholder="new password" required>
+      <button>Change Password</button>
+    </form>
+  `);
+});
+
+app.post("/reset", (req, res) => {
+  const { username, token, newPassword } = req.body;
+  const user = users[username];
+
+  if (!user) {
+    return res.status(400).send("Invalid user.");
+  }
+
+  if (!isValidResetToken(user, token)) {
+    return res.status(403).send("Invalid reset token.");
+  }
+
+  user.password = newPassword;
+
+  res.send(`
+    <p>Password changed.</p>
+    <a href="/login">Login</a>
+  `);
+});
+
+app.listen(3000, () => {
+  console.log("CTF server running on http://localhost:3000");
+});
