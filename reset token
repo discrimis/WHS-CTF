@@ -1,205 +1,215 @@
-/* 가장 기초적인 코드는 짜봤고, 실제로 넣어봤더니 기능하는것을 확인
-   forget에 hint를 띄어놨지만 계속 해나가면서 hint를 코드내부로 숨길예정
-   디자인은 로직 전부 해결한다음 건들예정
-*/
+#!/usr/bin/env python3
+from datetime import datetime
+from os import environ
+from time import time
 
-const express = require("express");
-const session = require("express-session");
+from flask import Flask, redirect, render_template, request
 
-const app = express();
-
-app.use(express.urlencoded({ extended: true }));
-
-app.use(
-  session({
-    secret: "ctf-session-secret",
-    resave: false,
-    saveUninitialized: false,
-  })
-);
+from admin_secret import ADMIN_PASSWORD
+from flag import FLAG
 
 
-const users = {
-  admin: {
-    username: "admin",
-    email: "ctfproblem@ctf.local",
-    password: "unknown_password",
-    role: "admin",
-  },
-};
+APP = Flask(__name__, static_folder="public", static_url_path="")
 
-// 현재 시간(분) 기준 토큰 생성
-function generateResetToken(user, minuteOffset = 0) {
-  const emailPrefix = user.email.split("@")[0];
-  const currentMinute = Math.floor(Date.now() / 60000) + minuteOffset;
-
-  return user.username + emailPrefix + currentMinute;
+users = {
+    "admin": {
+        "username": "admin",
+        "email": "ctfproblem@ctf.local",
+        "password": ADMIN_PASSWORD,
+        "role": "admin",
+    }
 }
 
-function isValidResetToken(user, token) {
-  const candidates = [
-    generateResetToken(user, -1),
-    generateResetToken(user, 0),
-    generateResetToken(user, 1),
-  ];
+register_logs = []
 
-  return candidates.includes(token);
-}
 
-app.get("/", (req, res) => {
-  res.send(`
-    <h1>Reset Token CTF</h1>
-    <ul>
-      <li><a href="/register">Register</a></li>
-      <li><a href="/login">Login</a></li>
-      <li><a href="/forgot">Forgot Password</a></li>
-    </ul>
+def get_register_time():
+    now = datetime.now()
+    return f"{now.year}:{now.hour:02d}:{now.minute:02d}"
 
-    <!-- hint: admin username is admin -->
-    <!-- hint: admin email prefix is ctfproblem -->
-  `);
-});
 
-app.get("/register", (req, res) => {
-  res.send(`
-    <h1>Register</h1>
-    <form method="POST" action="/register">
-      <input name="username" placeholder="username" required>
-      <input name="email" placeholder="email" required>
-      <input name="password" placeholder="password" required>
-      <button>Register</button>
-    </form>
-  `);
-});
+def generate_reset_token(user, minute_offset=0):
+    email_prefix = user["email"].split("@")[0]
+    current_minute = int(time() // 60) + minute_offset
+    return f"{email_prefix}{user['password']}{current_minute}"
 
-app.post("/register", (req, res) => {
-  const { username, email, password } = req.body;
 
-  if (users[username]) {
-    return res.send("User already exists.");
-  }
+def is_valid_reset_token(user, token):
+    candidates = [
+        generate_reset_token(user, -1),
+        generate_reset_token(user, 0),
+        generate_reset_token(user, 1),
+    ]
+    return token in candidates
 
-  users[username] = {
-    username,
-    email,
-    password,
-    role: "user",
-  };
 
-  res.send(`
-    <p>Register success.</p>
-    <a href="/login">Go to login</a>
-  `);
-});
+@APP.route("/")
+def index():
+    return render_template("index.html")
 
-app.get("/login", (req, res) => {
-  res.send(`
-    <h1>Login</h1>
-    <form method="POST" action="/login">
-      <input name="username" placeholder="username" required>
-      <input name="password" placeholder="password" required>
-      <button>Login</button>
-    </form>
-  `);
-});
 
-app.post("/login", (req, res) => {
-  const { username, password } = req.body;
-  const user = users[username];
+@APP.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        email = request.form.get("email", "")
+        password = request.form.get("password", "")
 
-  if (!user || user.password !== password) {
-    return res.status(401).send("Login failed.");
-  }
+        if username in users:
+            return render_template(
+                "message.html",
+                title="아이디 중복",
+                heading="아이디 중복",
+                message="이미 등록된 username입니다. 다른 아이디로 회원가입해주세요.",
+                back_url="/register",
+            )
 
-  req.session.username = username;
+        email_exists = any(user["email"] == email for user in users.values())
+        if email_exists:
+            return render_template(
+                "message.html",
+                title="이메일 중복",
+                heading="이메일 중복",
+                message="이미 등록된 email입니다. 다른 이메일로 회원가입해주세요.",
+                back_url="/register",
+            )
 
-  if (user.role === "admin") {
-    return res.send(`
-      <h1>Admin Page</h1>
-      <p>FLAG{predictable_reset_token_ctf}</p>
-    `);
-  }
+        users[username] = {
+            "username": username,
+            "email": email,
+            "password": password,
+            "role": "user",
+        }
+        register_logs.append({
+            "time": get_register_time(),
+            "username": username,
+            "email": email,
+        })
+        return redirect("/")
 
-  res.send(`
-    <h1>Hello, ${user.username}</h1>
-    <p>You are normal user.</p>
-  `);
-});
+    return render_template("register.html")
 
-app.get("/forgot", (req, res) => {
-  res.send(`
-    <h1>Forgot Password</h1>
-    <form method="POST" action="/forgot">
-      <input name="username" placeholder="username" required>
-      <input name="email" placeholder="email" required>
-      <button>Request Reset</button>
-    </form>
 
-    <!-- developer note: reset token uses username + email prefix + current minute -->
-  `);
-});
+@APP.route("/board")
+def board():
+    return render_template("board.html", register_logs=register_logs)
 
-app.post("/forgot", (req, res) => {
-  const { username, email } = req.body;
-  const user = users[username];
 
-  if (!user || user.email !== email) {
-    return res.send("If the account exists, reset link has been sent.");
-  }
+@APP.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        user = users.get(username)
 
-  // CTF 운영자 확인용 로그
-  const token = generateResetToken(user);
-  console.log(`[DEBUG] ${username}'s reset token: ${token}`);
+        if not user or user["password"] != password:
+            return (
+                render_template(
+                    "message.html",
+                    title="Login Failed",
+                    message="Login failed.",
+                    back_url="/login",
+                ),
+                401,
+            )
 
-  res.send(`
-    <p>If the account exists, reset link has been sent.</p>
-    <p>Reset page: /reset?username=${encodeURIComponent(username)}&token=YOUR_TOKEN</p>
-  `);
-});
+        if user["role"] == "admin":
+            return render_template(
+                "message.html",
+                title="Admin Page",
+                heading="Admin Page",
+                message=FLAG,
+            )
 
-app.get("/reset", (req, res) => {
-  const { username, token } = req.query;
-  const user = users[username];
+        return render_template(
+            "message.html",
+            title=f"Hello, {user['username']}",
+            heading=f"Hello, {user['username']}",
+            message="You are normal user.",
+        )
 
-  if (!user) {
-    return res.status(400).send("Invalid user.");
-  }
+    return render_template("login.html")
 
-  if (!isValidResetToken(user, token)) {
-    return res.status(403).send("Invalid reset token.");
-  }
 
-  res.send(`
-    <h1>Reset Password</h1>
-    <form method="POST" action="/reset">
-      <input type="hidden" name="username" value="${username}">
-      <input type="hidden" name="token" value="${token}">
-      <input name="newPassword" placeholder="new password" required>
-      <button>Change Password</button>
-    </form>
-  `);
-});
+@APP.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        email = request.form.get("email", "")
+        user = users.get(username)
 
-app.post("/reset", (req, res) => {
-  const { username, token, newPassword } = req.body;
-  const user = users[username];
+        if not user or user["email"] != email:
+            return render_template(
+                "message.html",
+                title="Password Lookup",
+                message="If the account exists, password lookup has been processed.",
+                link_url="/",
+                link_text="Home",
+            )
 
-  if (!user) {
-    return res.status(400).send("Invalid user.");
-  }
+        return render_template(
+            "message.html",
+            title="Password Found",
+            heading="Password Found",
+            message="",
+            extra_message=f"Password: {user['password']}",
+            link_url="/login",
+            link_text="Login",
+        )
 
-  if (!isValidResetToken(user, token)) {
-    return res.status(403).send("Invalid reset token.");
-  }
+    return render_template("forgot.html")
 
-  user.password = newPassword;
 
-  res.send(`
-    <p>Password changed.</p>
-    <a href="/login">Login</a>
-  `);
-});
+@APP.route("/reset", methods=["GET", "POST"])
+def reset():
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        token = request.form.get("token", "")
+        new_password = request.form.get("newPassword", "")
+    else:
+        username = request.args.get("username", "")
+        token = request.args.get("token", "")
+        new_password = ""
 
-app.listen(3000, () => {
-  console.log("CTF server running on http://localhost:3000");
-});
+    user = users.get(username)
+
+    if not user:
+        return (
+            render_template(
+                "message.html",
+                title="Invalid User",
+                message="Invalid user.",
+                link_url="/",
+                link_text="Home",
+            ),
+            400,
+        )
+
+    if not is_valid_reset_token(user, token):
+        return (
+            render_template(
+                "message.html",
+                title="Invalid Token",
+                message="Invalid reset token.",
+                link_url="/forgot",
+                link_text="Try again",
+            ),
+            403,
+        )
+
+    if request.method == "POST":
+        user["password"] = new_password
+        return render_template(
+            "message.html",
+            title="Password Changed",
+            message="Password changed.",
+            link_url="/login",
+            link_text="Login",
+        )
+
+    return render_template("reset.html", username=username, token=token)
+
+
+if __name__ == "__main__":
+    port = int(environ.get("PORT", "3000"))
+    APP.run(host="localhost", port=port)
