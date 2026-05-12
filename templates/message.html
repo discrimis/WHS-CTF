@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+{% if back_url %}<a class="back-link" href="{{ back_url }}">Back</a>{% endif %}
+<h1>{{ heading }}</h1>
+<p class="message">{{ message }}</p>
+{% if extra_message %}<p class="message">{{ extra_message }}</p>{% endif %}
+{% if link_url %}<a class="plain-link" href="{{ link_url }}">{{ link_text }}</a>{% endif %}
+{% endblock %}
